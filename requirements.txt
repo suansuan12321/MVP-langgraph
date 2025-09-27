@@ -19,3 +19,4 @@ PyMuPDF
 neo4j
 leidenalg
 igraph
+langsmith

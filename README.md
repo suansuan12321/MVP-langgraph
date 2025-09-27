@@ -26,6 +26,12 @@
 - 上下文关联：支持多轮对话的上下文理解
 - 对话历史管理：自动保存和加载对话记录
 
+### 4. 性能监控与分析
+- LangSmith 集成：实时追踪查询执行过程
+- 性能指标收集：响应时间、相似度分数、错误率等
+- 可视化监控：在 LangSmith 平台查看详细的分析报告
+- 自动报告生成：定期导出性能统计数据
+
 ## 技术架构
 
 ### 核心技术栈
@@ -34,6 +40,7 @@
 - **向量数据库**: Milvus
 - **图谱数据库**: Neo4j / NetworkX
 - **框架**: LangGraph, LangChain
+- **监控平台**: LangSmith
 
 ### 检索策略
 1. **向量检索**: 基于语义相似度的文档检索
@@ -47,6 +54,7 @@
 - uv (推荐) 或 pip
 - Milvus向量数据库
 - Neo4j数据库（可选）
+- LangSmith 账户（用于监控）
 
 ### 安装uv
 ```bash
@@ -94,12 +102,28 @@ OPENAI_API_BASE=your_openai_api_base
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_password
+
+# LangSmith 监控配置
+LANGSMITH_API_KEY=your_langsmith_api_key
+LANGSMITH_PROJECT=mvp-langgraph-rag
+LANGSMITH_TRACING=true
+
+# 监控开关
+ENABLE_MONITORING=true
+MONITORING_CONFIG_PATH=config/monitoring.yaml
 ```
 
 ## 项目结构
 
 ```
 MVP-langgrah
+├── monitoring/ # 监控模块目录
+│ ├── init.py # 监控模块初始化
+│ ├── langsmith_client.py # LangSmith 客户端
+│ ├── metrics_collector.py # 指标收集器
+│ └── performance_monitor.py # 性能监控器
+├── config/ # 配置文件目录
+│ └── monitoring.yaml # 监控配置文件
 ├── embedding.py # 文档向量化处理
 ├── graphRAG_query.py # GraphRAG主程序
 ├── flowchart.svg # 执行流程图
@@ -125,22 +149,42 @@ python embedding.py
 
 ### 2. 启动GraphRAG聊天机器人
 ```bash
-# 使用uv运行增强版（推荐）
-uv run python graphRAG_create.py
-
-# 或运行基础版
+# 使用uv运行
 uv run python graphRAG_query.py
 ```
+
 按提示输入：
 - 数据库集合名称
 - 是否使用Neo4j存储知识图谱
 - 是否启用交互学习模式
+- 是否启用性能监控
 
 ### 3. 查询模式切换
 在聊天过程中，可以使用以下命令切换检索模式：
 - `vector`: 纯向量检索
 - `kg`: 纯知识图谱检索
 - `hybrid`: 混合检索（默认）
+
+## 监控功能
+
+### LangSmith 集成
+- **实时追踪**：自动记录每次查询的执行过程
+- **性能分析**：响应时间、相似度分数、错误率统计
+- **可视化报告**：在 LangSmith 平台查看详细的分析图表
+- **历史对比**：比较不同时间段的性能表现
+
+### 监控指标
+- **响应时间**：查询处理总时间
+- **相似度分数**：检索结果的相关性评分
+- **检索效率**：向量检索 vs 图谱检索的性能对比
+- **错误率**：系统异常和失败率统计
+- **资源使用**：Token 消耗和 API 调用次数
+
+### 性能报告
+系统会自动生成以下报告：
+- 实时性能监控数据
+- 定期统计报告（每10次查询）
+- 会话结束时的完整性能报告
 
 ## 功能特性
 
@@ -170,6 +214,13 @@ uv run python graphRAG_query.py
 - **多轮对话**: 支持上下文记忆
 - **历史回顾**: 查看和搜索历史对话记录
 - **智能提问**: 自动生成相关补充问题
+
+### 监控与优化
+- **性能追踪**: 实时监控系统性能
+- **瓶颈识别**: 自动识别性能瓶颈
+- **优化建议**: 基于监控数据的改进建议
+- **趋势分析**: 长期性能趋势分析
+
 
 ## 部署指南
 
@@ -202,7 +253,13 @@ cp .env.example .env
 # 编辑 .env 文件，填入API密钥
 ```
 
-#### 4. 启动Milvus服务
+#### 4. 配置 LangSmith
+1. 注册 [LangSmith](https://smith.langchain.com/) 账户
+2. 获取 API Key
+3. 在 `.env` 文件中配置 `LANGSMITH_API_KEY`
+4. 设置项目名称 `LANGSMITH_PROJECT`
+
+#### 5. 启动Milvus服务
 ```bash
 # 使用Docker启动Milvus
 docker run -d --name milvus-standalone \
@@ -211,7 +268,7 @@ docker run -d --name milvus-standalone \
   milvusdb/milvus:latest
 ```
 
-#### 5. 启动Neo4j服务（可选）
+#### 6. 启动Neo4j服务（可选）
 ```bash
 # 使用Docker启动Neo4j
 docker run -d --name neo4j \
@@ -220,7 +277,7 @@ docker run -d --name neo4j \
   neo4j:latest
 ```
 
-#### 6. 运行程序
+#### 7. 运行程序
 ```bash
 # 第一步：处理文档
 uv run python embedding.py
