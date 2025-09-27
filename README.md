@@ -96,6 +96,19 @@ NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_password
 ```
 
+## 项目结构
+
+```
+MVP-langgrah
+├── embedding.py # 文档向量化处理
+├── graphRAG_query.py # GraphRAG主程序
+├── flowchart.svg # 执行流程图
+├── pyproject.toml # uv 包管理
+├── requirements.txt # 依赖包列表
+├── .env.example # 环境变量示例
+└── README.md # 项目说明文档
+```
+
 ## 使用方法
 
 ### 1. 文档向量化处理
