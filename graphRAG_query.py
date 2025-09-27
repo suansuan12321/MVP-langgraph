@@ -21,6 +21,16 @@ import leidenalg as la
 import igraph as ig
 from collections import defaultdict
 from datetime import datetime
+import json
+
+
+# 导入监控模块
+try:
+    from monitoring import PerformanceMonitor
+    MONITORING_AVAILABLE = True
+except ImportError:
+    MONITORING_AVAILABLE = False
+    logging.warning("监控模块不可用，将跳过性能监控功能")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
@@ -564,38 +574,37 @@ async def create_knowledge_graph(documents):
 
     return graph
 
-
 async def apply_hierarchical_clustering(graph):
     """应用Leiden算法进行层次聚类"""
     if not hasattr(graph, '_graph') or not graph._graph:
         logging.warning("知识图谱为空，无法进行聚类")
         return graph
-
+    
     logging.info("开始应用Leiden算法进行层次聚类...")
-
+    
     # 将NetworkX图转换为igraph格式
     nx_graph = graph._graph
     ig_graph = ig.Graph()
-
+    
     # 添加节点
     node_mapping = {}
     for i, node in enumerate(nx_graph.nodes()):
         ig_graph.add_vertex(name=str(node))
         node_mapping[node] = i
-
+    
     # 添加边
     for u, v, data in nx_graph.edges(data=True):
         weight = data.get('weight', 1.0)
         ig_graph.add_edge(node_mapping[u], node_mapping[v], weight=weight)
-
+    
     # 应用Leiden算法
     partitions = la.find_partition(
-        ig_graph,
-        la.ModularityVertexPartition,
+        ig_graph, 
+        la.ModularityVertexPartition, 
         weights='weight',
         n_iterations=10
     )
-
+    
     # 记录每个节点的社区信息
     communities = {}
     for i, community in enumerate(partitions):
@@ -604,7 +613,7 @@ async def apply_hierarchical_clustering(graph):
             communities[node_name] = i
             # 将社区信息保存到节点属性
             nx_graph.nodes[node_name]['community_id'] = i
-
+    
     # 计算社区内部连接紧密度
     community_cohesion = defaultdict(float)
     for community_id in set(communities.values()):
@@ -614,11 +623,11 @@ async def apply_hierarchical_clustering(graph):
             max_possible_edges = len(community_nodes) * (len(community_nodes) - 1) / 2
             cohesion = internal_edges / max_possible_edges if max_possible_edges > 0 else 0
             community_cohesion[community_id] = cohesion
-
+            
             # 为该社区的所有节点添加紧密度属性
             for node in community_nodes:
                 nx_graph.nodes[node]['community_cohesion'] = cohesion
-
+    
     # 识别社区之间的桥接节点
     bridge_nodes = []
     for node in nx_graph.nodes():
@@ -631,12 +640,11 @@ async def apply_hierarchical_clustering(graph):
             bridge_nodes.append(node)
         else:
             nx_graph.nodes[node]['is_bridge'] = False
-
+    
     logging.info(f"层次聚类完成，共识别出 {len(set(communities.values()))} 个社区")
     logging.info(f"识别出 {len(bridge_nodes)} 个桥接节点")
-
+    
     return graph
-
 
 async def browse_graph(graph):
     """图谱预览函数"""
@@ -973,11 +981,11 @@ class KGHybridRetriever:
 
         # 获取查询的embedding
         query_embedding = await self.get_cached_embedding(query)
-
+        
         # 计算所有节点与查询的相似度
         similarities = {}
         communities = defaultdict(list)
-
+        
         for node, data in self.graph._graph.nodes(data=True):
             node_text = str(node)
             if "embedding" in data:
@@ -985,86 +993,86 @@ class KGHybridRetriever:
             else:
                 embedding = await self.get_cached_embedding(node_text)
                 self.graph._graph.nodes[node]["embedding"] = embedding
-
+            
             similarity = self._cosine_similarity(query_embedding, embedding)
             similarities[node] = similarity
-
+            
             # 收集社区信息
             community_id = data.get('community_id', -1)
             communities[community_id].append((node, similarity))
-
+        
         results = []
-
+        
         # 先找出相似度最高的社区
         community_avg_sim = {}
         for community_id, nodes in communities.items():
             if community_id != -1:  # 跳过未分类节点
                 avg_sim = sum(sim for _, sim in nodes) / len(nodes)
                 community_avg_sim[community_id] = avg_sim
-
+        
         # 按相似度排序社区
         sorted_communities = sorted(
-            community_avg_sim.items(),
-            key=lambda x: x[1],
+            community_avg_sim.items(), 
+            key=lambda x: x[1], 
             reverse=True
         )[:3]  # 取前3个最相关社区
-
+        
         # 从相关社区中选择节点
         selected_nodes = set()
         for community_id, _ in sorted_communities:
             # 从每个社区选择最相关的节点
             community_nodes = communities[community_id]
             sorted_nodes = sorted(community_nodes, key=lambda x: x[1], reverse=True)
-
+            
             # 取每个社区的前2个节点
             for node, sim in sorted_nodes[:2]:
                 selected_nodes.add(node)
-
+        
         # 添加桥接节点(如果相关)
         bridge_nodes = [
-            (node, similarities[node])
+            (node, similarities[node]) 
             for node, data in self.graph._graph.nodes(data=True)
             if data.get('is_bridge', False) and similarities[node] > 0.5
         ]
         for node, sim in sorted(bridge_nodes, key=lambda x: x[1], reverse=True)[:2]:
             selected_nodes.add(node)
-
+        
         # 构建结果文档
         for node in selected_nodes:
             sim = similarities[node]
             content = f"Entity: {node} (similarity: {sim:.4f})"
             if self.include_text and "text" in self.graph._graph.nodes[node]:
                 content += f"\nDetails: {self.graph._graph.nodes[node]['text']}"
-
+                
             # 添加社区信息
             community_id = self.graph._graph.nodes[node].get('community_id', -1)
             if community_id != -1:
                 content += f"\nCommunity: {community_id}"
-
+                
             results.append(Document(
-                page_content=content,
+                page_content=content, 
                 metadata={
-                    "source": "kg_vector",
+                    "source": "kg_vector", 
                     "similarity": sim,
                     "community_id": community_id
                 }
             ))
-
+            
             # 添加该节点的邻居
             if self.explore_global_knowledge:
                 neighbors = list(self.graph._graph.neighbors(node))
                 for neighbor in neighbors:
                     edge_data = self.graph._graph.get_edge_data(node, neighbor) or {}
                     relation = edge_data.get("relation", "related_to")
-
+                    
                     content = f"{node} {relation} {neighbor} (related to similarity: {sim:.4f})"
                     if self.include_text and "text" in self.graph._graph.nodes[neighbor]:
                         content += f"\nDetails: {self.graph._graph.nodes[neighbor]['text']}"
-
+                        
                     results.append(Document(
-                        page_content=content,
+                        page_content=content, 
                         metadata={
-                            "source": "kg_vector",
+                            "source": "kg_vector", 
                             "similarity": sim * 0.8,
                             "is_neighbor": True
                         }
@@ -1198,26 +1206,26 @@ class KGHybridRetriever:
         """从用户交互中学习并同时更新 Neo4j"""
         logging.info("从用户交互中学习...")
         start_time = time.time()
-
+        
         # 1. 构建学习材料 - 包含查询、回答和上下文
         learning_material = f"问题：{query}\n回答：{answer}"
         if context_docs:
             # 添加被引用的文档作为上下文
             for i, doc in enumerate(context_docs[:3]):  # 限制使用的文档数量
-                learning_material += f"\n参考资料{i + 1}：{doc.page_content[:500]}"
-
+                learning_material += f"\n参考资料{i+1}：{doc.page_content[:500]}"
+        
         # 2. 提取实体
         new_entities = extract_entities(learning_material)
         if not new_entities:
             logging.info("未从交互中提取到新实体")
             return False
-
+        
         # 3. 提取关系
         new_relationships = extract_relationships(learning_material, new_entities)
-
+        
         # 4. 更新知识图谱
         updated = False
-
+        
         # 4.1 添加新实体
         for entity in new_entities:
             if entity not in self.graph._graph.nodes:
@@ -1228,19 +1236,19 @@ class KGHybridRetriever:
                 self.graph._graph.nodes[entity]["importance"] = 1
                 self.graph._graph.nodes[entity]["learned"] = True  # 标记为学习所得
                 updated = True
-
+        
         # 4.2 添加新关系
         for rel in new_relationships:
             source_entity = rel["source"]
             target_entity = rel["target"]
             relation = rel["relation"]
-
+            
             # 确保两个实体都在图中
             if source_entity not in self.graph._graph.nodes:
                 continue
             if target_entity not in self.graph._graph.nodes:
                 continue
-
+            
             # 添加或更新边
             if not self.graph._graph.has_edge(source_entity, target_entity):
                 self.graph._graph.add_edge(
@@ -1255,12 +1263,12 @@ class KGHybridRetriever:
                 # 如果边已存在，更新权重
                 self.graph._graph[source_entity][target_entity]["weight"] += 1
                 updated = True
-
+        
         # 5. 如果有更新，重新计算实体嵌入
         if updated:
             await self._update_entity_embeddings(new_entities)
             logging.info(f"学习了 {len(new_entities)} 个实体和 {len(new_relationships)} 个关系")
-
+        
         # 更新 Neo4j
         if updated and self.neo4j and self.neo4j.connected:
             for entity in new_entities:
@@ -1270,17 +1278,17 @@ class KGHybridRetriever:
                     "importance": 1,
                     "learned": True
                 })
-
+            
             for rel in new_relationships:
                 source_entity = rel["source"]
                 target_entity = rel["target"]
                 relation = rel["relation"]
-
+                
                 valid_relation = re.sub(r'[^a-zA-Z0-9_]', '_', relation).upper()
                 # 确保关系类型不以数字开头
                 if valid_relation and valid_relation[0].isdigit():
                     valid_relation = f"REL_{valid_relation}"
-
+                
                 self.neo4j.add_relationship(
                     source_entity,
                     target_entity,
@@ -1291,11 +1299,10 @@ class KGHybridRetriever:
                         "learned": True
                     }
                 )
-
+        
         end_time = time.time()
         logging.info(f"learn_from_interaction时间：{end_time - start_time}秒")
         return updated
-
 
 class Neo4jKnowledgeGraph:
     """Neo4j 知识图谱管理类"""
@@ -1506,15 +1513,14 @@ class Neo4jKnowledgeGraph:
             logging.error(f"添加关系失败: {e}")
             return False
 
-
 class ConversationHistory:
     """对话历史管理类"""
-
+    
     def __init__(self, max_history=100):
         self.history = []
         self.max_history = max_history
         self.current_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-
+    
     def add_conversation(self, query: str, answer: str, metadata: Dict = None):
         """添加对话记录"""
         conversation = {
@@ -1525,37 +1531,37 @@ class ConversationHistory:
             "metadata": metadata or {}
         }
         self.history.append(conversation)
-
+        
         # 保持历史记录在限制范围内
         if len(self.history) > self.max_history:
             self.history = self.history[-self.max_history:]
-
+    
     def search_history(self, keyword: str, limit: int = 10) -> List[Dict]:
         """搜索历史对话"""
         results = []
         keyword_lower = keyword.lower()
-
+        
         for conv in reversed(self.history):  # 从最新开始搜索
-            if (keyword_lower in conv["query"].lower() or
-                    keyword_lower in conv["answer"].lower()):
+            if (keyword_lower in conv["query"].lower() or 
+                keyword_lower in conv["answer"].lower()):
                 results.append(conv)
                 if len(results) >= limit:
                     break
-
+        
         return results
-
+    
     def get_recent_history(self, limit: int = 5) -> List[Dict]:
         """获取最近的对话历史"""
         return self.history[-limit:] if self.history else []
-
+    
     def get_session_history(self, session_id: str) -> List[Dict]:
         """获取特定会话的历史"""
         return [conv for conv in self.history if conv["session_id"] == session_id]
-
+    
     def clear_history(self):
         """清空历史记录"""
         self.history = []
-
+    
     def save_to_file(self, filepath: str):
         """保存历史到文件"""
         try:
@@ -1564,7 +1570,7 @@ class ConversationHistory:
             logging.info(f"对话历史已保存到: {filepath}")
         except Exception as e:
             logging.error(f"保存对话历史失败: {e}")
-
+    
     def load_from_file(self, filepath: str):
         """从文件加载历史"""
         try:
@@ -1578,19 +1584,18 @@ class ConversationHistory:
 
 class FollowUpQuestionGenerator:
     """补充提问生成器"""
-
+    
     def __init__(self, llm):
         self.llm = llm
-
-    async def generate_follow_up_questions(self, query: str, answer: str, context_docs: List[Document] = None) -> List[
-        str]:
+    
+    async def generate_follow_up_questions(self, query: str, answer: str, context_docs: List[Document] = None) -> List[str]:
         """基于当前问答生成补充提问"""
-
+        
         # 构建上下文信息
         context_info = ""
         if context_docs:
             context_info = "\n".join([doc.page_content[:200] for doc in context_docs[:3]])
-
+        
         prompt = f"""基于以下问答内容，生成3-5个相关的补充提问，帮助用户深入了解这个话题。
 
 原始问题：{query}
@@ -1610,7 +1615,7 @@ class FollowUpQuestionGenerator:
         try:
             response = await self.llm.ainvoke(prompt)
             questions_text = response.content if hasattr(response, "content") else str(response)
-
+            
             # 解析问题列表
             questions = []
             for line in questions_text.strip().split('\n'):
@@ -1621,24 +1626,24 @@ class FollowUpQuestionGenerator:
                     clean_question = re.sub(r'^[-*]\s*', '', clean_question)
                     if clean_question and len(clean_question) > 10:  # 过滤太短的问题
                         questions.append(clean_question)
-
+            
             return questions[:5]  # 最多返回5个问题
-
+            
         except Exception as e:
             logging.error(f"生成补充提问失败: {e}")
             return []
-
+    
     async def generate_contextual_questions(self, conversation_history: List[Dict], current_query: str) -> List[str]:
         """基于对话历史生成上下文相关问题"""
-
+        
         if len(conversation_history) < 2:
             return []
-
+        
         # 构建对话历史摘要
         history_summary = ""
         for i, conv in enumerate(conversation_history[-3:], 1):  # 最近3轮对话
             history_summary += f"第{i}轮：问题：{conv['query']}\n回答：{conv['answer'][:200]}...\n\n"
-
+        
         prompt = f"""基于以下对话历史，为当前问题生成相关的上下文问题：
 
                     对话历史：
@@ -1656,18 +1661,20 @@ class FollowUpQuestionGenerator:
         try:
             response = await self.llm.ainvoke(prompt)
             questions_text = response.content if hasattr(response, "content") else str(response)
-
+            
             questions = []
             for line in questions_text.strip().split('\n'):
                 line = line.strip()
                 if line and len(line) > 10:
                     questions.append(line)
-
+            
             return questions[:3]  # 最多返回3个问题
-
+            
         except Exception as e:
             logging.error(f"生成上下文问题失败: {e}")
             return []
+
+
 
 
 async def save_knowledge_graph(graph, path):
@@ -1678,7 +1685,6 @@ async def save_knowledge_graph(graph, path):
         return True
     return False
 
-
 async def visualize_communities(graph):
     """可视化社区聚类结果"""
     import matplotlib.pyplot as plt
@@ -1686,34 +1692,34 @@ async def visualize_communities(graph):
     import numpy as np
     plt.rcParams['font.family'] = 'SimSun'
     plt.rcParams['axes.unicode_minus'] = False
-
+    
     if not hasattr(graph, '_graph') or not graph._graph:
         print("图谱为空，无法可视化")
         return
-
+    
     nx_graph = graph._graph
-
+    
     # 检查是否已进行社区划分
     if not any('community_id' in data for _, data in nx_graph.nodes(data=True)):
         print("图谱尚未进行社区划分，请先执行层次聚类")
         return
-
+    
     # 获取所有社区ID
     communities = set()
     for _, data in nx_graph.nodes(data=True):
         comm_id = data.get('community_id', -1)
         if comm_id != -1:
             communities.add(comm_id)
-
+    
     # 创建颜色映射
     colors = list(mcolors.TABLEAU_COLORS.values())
     if len(communities) > len(colors):
         colors = list(mcolors.CSS4_COLORS.values())
-
+    
     color_map = {}
     for i, comm_id in enumerate(communities):
         color_map[comm_id] = colors[i % len(colors)]
-
+    
     # 为每个节点分配颜色
     node_colors = []
     for node, data in nx_graph.nodes(data=True):
@@ -1722,7 +1728,7 @@ async def visualize_communities(graph):
             node_colors.append(color_map[comm_id])
         else:
             node_colors.append('gray')  # 未分类节点
-
+    
     # 为桥接节点使用特殊形状
     node_shapes = []
     for _, data in nx_graph.nodes(data=True):
@@ -1730,53 +1736,52 @@ async def visualize_communities(graph):
             node_shapes.append('s')  # 正方形
         else:
             node_shapes.append('o')  # 圆形
-
+    
     pos = nx.spring_layout(nx_graph, seed=42)
-
+    
     plt.figure(figsize=(12, 10))
-
+    
     # 绘制边
     nx.draw_networkx_edges(nx_graph, pos, alpha=0.3)
-
+    
     # 分别绘制不同形状的节点
     node_list = list(nx_graph.nodes())
     for shape in set(node_shapes):
         indices = [i for i, s in enumerate(node_shapes) if s == shape]
         nodelist = [node_list[i] for i in indices]
         nodecolor = [node_colors[i] for i in indices]
-
+        
         if shape == 'o':
             nx.draw_networkx_nodes(nx_graph, pos, nodelist=nodelist, node_color=nodecolor, alpha=0.8)
         else:  # 正方形
             nx.draw_networkx_nodes(nx_graph, pos, nodelist=nodelist, node_color=nodecolor, node_shape=shape, alpha=0.8)
-
+    
     # 添加标签
     nx.draw_networkx_labels(nx_graph, pos, font_size=8)
-
+    
     # 添加图例
     patches = []
     for comm_id, color in color_map.items():
-        patches.append(plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=10,
-                                  label=f'社区 {comm_id}'))
-
+        patches.append(plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=10, 
+                                 label=f'社区 {comm_id}'))
+    
     # 添加形状图例
     patches.append(plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='gray', markersize=10, label='普通节点'))
     patches.append(plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='gray', markersize=10, label='桥接节点'))
-
+    
     plt.legend(handles=patches, loc='best')
     plt.title(f'知识图谱社区结构 ({len(communities)}个社区)')
     plt.axis('off')
-
+    
     # 保存图片
     plt.savefig(f'knowledge_graph_communities.png', dpi=300)
     print(f"社区可视化图已保存为 knowledge_graph_communities.png")
     plt.show()
 
-
 # 1. 定义检索节点
 async def retrieve(state):
     query = state["query"]
-    search_type = state.get("search_type", "hybrid")  # 默认使用混合检索
+    search_type = state.get("search_type", "hybrid")
 
     start_time = time.time()
 
@@ -1801,9 +1806,31 @@ async def retrieve(state):
         reranked_docs, kg_docs = await asyncio.gather(vector_docs_future, kg_docs_future)
 
     end_time = time.time()
-    logging.info(f"retrieve时间：{end_time - start_time}秒")
+    retrieval_time = end_time - start_time
+    logging.info(f"retrieve时间：{retrieval_time}秒")
+
+    # 提取相似度分数用于监控
+    similarity_scores = []
+    for doc in reranked_docs + kg_docs:
+        if "similarity" in doc.metadata:
+            similarity_scores.append(doc.metadata["similarity"])
 
     found_docs = bool(reranked_docs) or bool(kg_docs)
+    
+    # 记录检索指标（如果监控可用）
+    if MONITORING_AVAILABLE and 'monitor' in globals() and monitor:
+        try:
+            query_id = f"query_{int(time.time() * 1000)}"
+            await monitor.langsmith_client.log_retrieval_metrics(
+                query_id=query_id,
+                vector_docs=reranked_docs,
+                kg_docs=kg_docs,
+                similarity_scores=similarity_scores,
+                retrieval_time=retrieval_time
+            )
+        except Exception as e:
+            logging.error(f"记录检索指标失败: {e}")
+    
     return {
         "query": query,
         "reranked_docs": reranked_docs,
@@ -1811,32 +1838,30 @@ async def retrieve(state):
         "found_docs": found_docs
     }
 
-
 def route_after_retrieve(state):
     if state["found_docs"]:
         return "enhance"
     else:
         return "generate"
 
-
 async def human_review_retrieval(state):
     """人工审核检索结果"""
     print("\n=== 检索结果人工审核 ===")
     vector_docs = state.get("reranked_docs", [])
     kg_docs = state.get("kg_docs", [])
-
+    
     # 展示检索结果
     print(f"向量检索结果: {len(vector_docs)} 个文档")
     for i, doc in enumerate(vector_docs, 1):
         print(f"{i}. {doc.page_content[:100]}...")
-
+    
     print(f"\n知识图谱检索结果: {len(kg_docs)} 个文档")
     for i, doc in enumerate(kg_docs, 1):
         print(f"{i}. {doc.page_content[:100]}...")
-
+    
     # 人工干预
     action = await async_input("\n请选择操作: \n1. 继续处理 \n2. 删除某个结果 \n3. 添加额外信息 \n选择: ")
-
+    
     if action == "2":
         # 删除操作
         doc_type = await async_input("删除哪类文档? (vector/kg): ")
@@ -1844,12 +1869,12 @@ async def human_review_retrieval(state):
         if doc_id.isdigit():
             doc_id = int(doc_id)
             if doc_type.lower() == "vector" and 1 <= doc_id <= len(vector_docs):
-                state["reranked_docs"].pop(doc_id - 1)
+                state["reranked_docs"].pop(doc_id-1)
                 print(f"已删除向量文档 {doc_id}")
             elif doc_type.lower() == "kg" and 1 <= doc_id <= len(kg_docs):
-                state["kg_docs"].pop(doc_id - 1)
+                state["kg_docs"].pop(doc_id-1)
                 print(f"已删除知识图谱文档 {doc_id}")
-
+    
     elif action == "3":
         # 添加额外信息
         extra_info = await async_input("请输入要添加的额外信息: ")
@@ -1857,7 +1882,7 @@ async def human_review_retrieval(state):
             new_doc = Document(page_content=extra_info, metadata={"source": "human_input"})
             state["kg_docs"].append(new_doc)
             print("已添加人工提供的信息")
-
+    
     return state
 
 
@@ -1934,19 +1959,49 @@ async def generate(state):
         answer_text = f"未从您的文档中检索到内容，直接生成：\n{answer_text}"
     print('\n')
     end_time = time.time()
-    logging.info(f"generate时间：{end_time - start_time}秒")
-
+    response_time = end_time - start_time  # 修复：定义 response_time 变量
+    logging.info(f"generate时间：{response_time}秒")
+    
+    # 提取相似度分数
+    similarity_scores = []
+    if "reranked_docs" in state:
+        for doc in state["reranked_docs"]:
+            if "similarity" in doc.metadata:
+                similarity_scores.append(doc.metadata["similarity"])
+    
+    if "kg_docs" in state:
+        for doc in state["kg_docs"]:
+            if "similarity" in doc.metadata:
+                similarity_scores.append(doc.metadata["similarity"])
+    
+    # 监控查询执行（如果监控可用）
+    if MONITORING_AVAILABLE and 'monitor' in globals():
+        try:
+            await monitor.monitor_query(
+                query=query,
+                answer=answer_text,
+                response_time=response_time,
+                similarity_scores=similarity_scores,
+                search_type=state.get("search_type", "hybrid"),
+                found_docs=found_docs,
+                docs_count=len(state.get("docs", [])),
+                metadata={"search_type": state.get("search_type", "hybrid")}
+            )
+        except Exception as e:
+            logging.error(f"监控记录失败: {e}")
+    
     # 收集对话元数据
     metadata = {
         "search_type": state.get("search_type", "hybrid"),
         "found_docs": found_docs,
         "docs_count": len(state.get("docs", [])),
-        "processing_time": end_time - start_time
+        "processing_time": response_time,
+        "similarity_scores": similarity_scores  # 添加相似度分数到元数据
     }
-
+    
     # 保存到对话历史
     conversation_history.add_conversation(query, answer_text, metadata)
-
+    
     return {
         "query": query,
         "docs": state.get("docs", []),
@@ -1956,24 +2011,23 @@ async def generate(state):
         "conversation_metadata": metadata
     }
 
-
 # 4. 学习节点
 async def learn(state):
     """经人工确认后，可从用户交互中学习"""
     query = state["query"]
     answer = state["answer"]
     docs = state.get("docs", [])
-
+    
     # 仅当检索到文档时尝试学习
     if state.get("found_docs", False):
         # 先提取潜在实体和关系
         learning_material = f"问题：{query}\n回答：{answer}"
         new_entities = extract_entities(learning_material)
-
+        
         if new_entities:
             print("\n=== 知识图谱学习确认 ===")
             print(f"从交互中识别出的实体: {', '.join(new_entities)}")
-
+            
             confirm = await async_input("是否将这些知识添加到知识图谱? (y/n): ")
             if confirm.lower() == 'y':
                 # 使用检索到的文档作为上下文
@@ -1985,24 +2039,23 @@ async def learn(state):
                     print("知识已成功添加到图谱")
             else:
                 print("已取消知识添加")
-
+    
     return state
-
 
 # 5. 历史回顾相关节点
 async def history_review(state):
     """历史回顾节点"""
     print("\n=== 对话历史回顾 ===")
-
+    
     # 显示历史回顾选项
     print("历史回顾选项:")
     print("1. 查看最近对话")
     print("2. 搜索历史对话")
     print("3. 查看特定会话")
     print("4. 返回主流程")
-
+    
     choice = await async_input("请选择操作 (1-4): ")
-
+    
     if choice == "1":
         # 查看最近对话
         recent_history = conversation_history.get_recent_history(limit=5)
@@ -2015,7 +2068,7 @@ async def history_review(state):
                 print(f"回答: {conv['answer'][:200]}...")
         else:
             print("暂无对话历史")
-
+            
         # 询问是否选择某个历史问题进行重新提问
         if recent_history:
             follow_up = await async_input("\n是否要基于某个历史问题继续提问? (输入编号或'n'跳过): ")
@@ -2025,7 +2078,7 @@ async def history_review(state):
                     selected_query = recent_history[idx]['query']
                     print(f"已选择问题: {selected_query}")
                     return {"query": selected_query, "history": state.get("history", "")}
-
+    
     elif choice == "2":
         # 搜索历史对话
         keyword = await async_input("请输入搜索关键词: ")
@@ -2038,7 +2091,7 @@ async def history_review(state):
                     print(f"时间: {conv['timestamp']}")
                     print(f"问题: {conv['query']}")
                     print(f"回答: {conv['answer'][:150]}...")
-
+                
                 # 询问是否选择某个结果
                 select = await async_input("\n是否要选择某个对话继续提问? (输入编号或'n'跳过): ")
                 if select.isdigit():
@@ -2049,7 +2102,7 @@ async def history_review(state):
                         return {"query": selected_query, "new_query": True, "history": state.get("history", "")}
             else:
                 print("未找到相关对话")
-
+    
     elif choice == "3":
         # 查看特定会话
         sessions = set(conv['session_id'] for conv in conversation_history.history)
@@ -2068,10 +2121,9 @@ async def history_review(state):
                 print("未找到指定会话")
         else:
             print("暂无会话历史")
-
+    
     # 返回原状态，继续主流程
     return {"new_query": False}
-
 
 # 6. 生成补充提问节点
 async def generate_follow_up_questions(state):
@@ -2079,17 +2131,17 @@ async def generate_follow_up_questions(state):
     query = state["query"]
     answer = state["answer"]
     docs = state.get("docs", [])
-
+    
     # 生成补充提问
     follow_up_generator = FollowUpQuestionGenerator(llm)
     follow_up_questions = await follow_up_generator.generate_follow_up_questions(query, answer, docs)
-
+    
     # 如果历史记录较多，也生成基于上下文的提问
     recent_history = conversation_history.get_recent_history(limit=3)
     if len(recent_history) >= 2:
         contextual_questions = await follow_up_generator.generate_contextual_questions(recent_history, query)
         follow_up_questions.extend(contextual_questions)
-
+    
     # 去重并限制数量
     unique_questions = []
     seen = set()
@@ -2097,34 +2149,33 @@ async def generate_follow_up_questions(state):
         if q not in seen and len(q.strip()) > 10:
             unique_questions.append(q)
             seen.add(q)
-
+    
     state["follow_up_questions"] = unique_questions[:5]  # 最多5个问题
-
+    
     return state
-
 
 # 7. 显示补充提问节点
 async def display_follow_up_questions(state):
     """显示补充提问并处理用户选择"""
     follow_up_questions = state.get("follow_up_questions", [])
-
+    
     if follow_up_questions:
         print("\n=== 相关补充提问 ===")
         for i, question in enumerate(follow_up_questions, 1):
             print(f"{i}. {question}")
-
+        
         print(f"{len(follow_up_questions) + 1}. 继续新问题（直接输入新问题）")
         print(f"{len(follow_up_questions) + 2}. 查看历史回顾")
-
+        
         choice = await async_input(f"\n请选择操作 (1-{len(follow_up_questions) + 2}): ")
-
+        
         if choice.isdigit():
             choice_idx = int(choice)
             if 1 <= choice_idx <= len(follow_up_questions):
                 # 用户选择了补充提问
                 selected_question = follow_up_questions[choice_idx - 1]
                 print(f"\n已选择问题: {selected_question}")
-
+                
                 # 标记有新查询需要处理
                 return {
                     "query": selected_question,
@@ -2135,10 +2186,9 @@ async def display_follow_up_questions(state):
             elif choice_idx == len(follow_up_questions) + 2:
                 # 用户选择查看历史回顾，返回标记让主循环处理
                 return {"show_history": True}
-
+    
     # 默认继续新问题
     return {"new_query": False}
-
 
 def route_after_generate(state):
     """生成后的路由决策"""
@@ -2149,7 +2199,6 @@ def route_after_generate(state):
     else:
         return END
 
-
 def route_from_display_follow_up(state):
     """从显示补充提问节点的路由决策"""
     # 检查是否有新查询需要处理
@@ -2157,7 +2206,6 @@ def route_from_display_follow_up(state):
         return "retrieve"
     else:
         return END
-
 
 def route_from_history_review(state):
     """从历史回顾节点的路由决策"""
@@ -2167,20 +2215,29 @@ def route_from_history_review(state):
     else:
         return END
 
-
 async def async_input(prompt):
     return await asyncio.to_thread(input, prompt)
-
 
 async def main():
     global vectorstore, llm, memory, kg_retriever, collection_name, conversation_history
 
     collection_name = await async_input("请输入数据库集合名称：")
     start_time = time.time()
+    
+    # 初始化性能监控器
+    if MONITORING_AVAILABLE:
+        try:
+            monitor = PerformanceMonitor()
+            logging.info("性能监控器初始化成功")
+        except Exception as e:
+            logging.error(f"性能监控器初始化失败: {e}")
+            monitor = None
+    else:
+        monitor = None
 
     # 初始化对话历史管理器
     conversation_history = ConversationHistory()
-
+    
     # 尝试加载历史记录
     history_file = f"{collection_name}_conversation_history.json"
     conversation_history.load_from_file(history_file)
@@ -2339,6 +2396,8 @@ async def main():
                         logging.info(
                             f"知识图谱创建成功，包含 {len(graph._graph.nodes)} 个节点和 {len(graph._graph.edges)} 条边")
 
+
+
                         # 如果使用Neo4j，将新创建的知识图谱保存到Neo4j
                         if neo4j_instance and neo4j_instance.connected:
                             logging.info("开始将新创建的知识图谱保存到Neo4j...")
@@ -2406,36 +2465,53 @@ async def main():
     graph.add_node("display_follow_up", display_follow_up_questions)
     graph.add_node("history_review", history_review)
 
-    graph.add_conditional_edges("retrieve", route_after_retrieve,
-                                {'enhance': 'human_review_retrieval', 'generate': 'generate'})
+    graph.add_conditional_edges("retrieve", route_after_retrieve, {'enhance': 'human_review_retrieval', 'generate': 'generate'})
     graph.add_edge("human_review_retrieval", "enhance")
     graph.add_edge("enhance", "generate")
     graph.add_edge("generate", "learn")
     graph.add_edge("learn", "generate_follow_up")
-    graph.add_conditional_edges("generate_follow_up", route_after_generate,
-                                {'display_follow_up': 'display_follow_up', END: END})
+    graph.add_conditional_edges("generate_follow_up", route_after_generate, {'display_follow_up': 'display_follow_up', END: END})
     graph.add_conditional_edges("display_follow_up", route_from_display_follow_up, {'retrieve': 'retrieve', END: END})
     graph.add_conditional_edges("history_review", route_from_history_review, {'retrieve': 'retrieve', END: END})
-
+    
     graph.set_entry_point("retrieve")
     app = graph.compile()
 
     # 添加学习配置
     learning_config = {
-        "enabled": True,  # 是否启用学习
-        "min_confidence": 0.7,  # 学习的最低置信度
-        "auto_save_interval": 10,  # 每处理10次查询自动保存图谱
-        "learned_entities_limit": 50,  # 每次学习的最大实体数
+        "enabled": True,
+        "min_confidence": 0.7,
+        "auto_save_interval": 10,
+        "learned_entities_limit": 50,
     }
     learning_enabled = await async_input("是否启用交互学习模式? (y/n): ")
     learning_config["enabled"] = learning_enabled.lower() == 'y'
+
+    # 询问是否启用监控
+    if MONITORING_AVAILABLE:
+        monitoring_enabled = await async_input("是否启用性能监控? (y/n): ")
+        if monitoring_enabled.lower() != 'y':
+            monitor = None
+            logging.info("性能监控已禁用")
+    
     query_count = 0
+    
 
     while True:
         query = await async_input("\n请输入你的问题：")
         if query.strip().lower() == "exit":
             # 保存对话历史
             conversation_history.save_to_file(history_file)
+            
+            # 导出性能报告
+            if monitor:
+                try:
+                    report_file = f"{collection_name}_performance_report.json"
+                    await monitor.export_metrics(report_file)
+                    logging.info(f"性能报告已导出到: {report_file}")
+                except Exception as e:
+                    logging.error(f"导出性能报告失败: {e}")
+            
             if neo4j_instance:
                 neo4j_instance.close()
                 logging.info("已关闭 Neo4j 连接")
@@ -2476,9 +2552,9 @@ async def main():
             # 使用配置增加递归限制
             result = await app.ainvoke(
                 {"query": query, "history": history, "search_type": search_type},
-                config={"recursion_limit": 50}
+                config={"recursion_limit": 50} 
             )
-
+            
             # 结果显示
             if "show_history" in result:
                 history_result = await history_review({"query": "", "history": ""})
@@ -2487,19 +2563,19 @@ async def main():
             else:
                 # 正常显示回答
                 print(f"\n回答: {result.get('answer', '')}")
-
+                
                 # 处理补充提问
                 follow_up_questions = result.get("follow_up_questions", [])
                 if follow_up_questions:
                     print("\n=== 相关补充提问 ===")
                     for i, question in enumerate(follow_up_questions, 1):
                         print(f"{i}. {question}")
-
+                    
                     print(f"{len(follow_up_questions) + 1}. 继续新问题（直接输入新问题）")
                     print(f"{len(follow_up_questions) + 2}. 查看历史回顾")
-
+                    
                     choice = await async_input(f"\n请选择操作 (1-{len(follow_up_questions) + 2}): ")
-
+                    
                     if choice.isdigit():
                         choice_idx = int(choice)
                         if 1 <= choice_idx <= len(follow_up_questions):
@@ -2511,33 +2587,40 @@ async def main():
                         elif choice_idx == len(follow_up_questions) + 2:
                             # 用户选择查看历史回顾
                             history_result = await history_review({"query": "", "history": ""})
-                            if "query" in history_result and "new_query" in history_result and history_result[
-                                "new_query"]:
+                            if "query" in history_result and "new_query" in history_result and history_result["new_query"]:
                                 query = history_result["query"]
                                 continue
-
+                
                 await asyncio.to_thread(memory.save_context, {"input": query}, {"output": result["answer"]})
                 query_count += 1
+            
+            # 定期保存和监控报告
+            if learning_config["enabled"] and query_count % learning_config["auto_save_interval"] == 0:
+                await save_knowledge_graph(kg_retriever.graph, f"{collection_name}_graph.gpickle")
+                conversation_history.save_to_file(history_file)
+                logging.info(f"自动保存完成，已处理 {query_count} 次查询")
 
+                # 导出性能报告
+                if monitor:
+                    try:
+                        report_file = f"{collection_name}_performance_report_{query_count}.json"
+                        await monitor.export_metrics(report_file)
+                        logging.info(f"性能报告已导出到: {report_file}")
+                    except Exception as e:
+                        logging.error(f"导出性能报告失败: {e}")
+
+                # 同时更新 Neo4j 数据库
+                if neo4j_instance and neo4j_instance.connected:
+                    logging.info("自动更新 Neo4j 知识图谱...")
+                    if neo4j_instance.networkx_to_neo4j(kg_retriever.graph._graph):
+                        logging.info("成功更新 Neo4j 知识图谱")
+                    else:
+                        logging.error("更新 Neo4j 知识图谱失败")
+                
         except Exception as e:
             logging.error(f"处理查询时出错: {e}")
             print(f"处理查询时出错: {e}")
             continue
-
-        # 定期保存
-        if learning_config["enabled"] and query_count % learning_config["auto_save_interval"] == 0:
-            await save_knowledge_graph(kg_retriever.graph, f"{collection_name}_graph.gpickle")
-            conversation_history.save_to_file(history_file)
-            logging.info(f"自动保存完成，已处理 {query_count} 次查询")
-
-            # 同时更新 Neo4j 数据库
-            if neo4j_instance and neo4j_instance.connected:
-                logging.info("自动更新 Neo4j 知识图谱...")
-                if neo4j_instance.networkx_to_neo4j(kg_retriever.graph._graph):
-                    logging.info("成功更新 Neo4j 知识图谱")
-                else:
-                    logging.error("更新 Neo4j 知识图谱失败")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

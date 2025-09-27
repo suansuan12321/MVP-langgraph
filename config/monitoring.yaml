@@ -1,0 +1,37 @@
+# LangSmith 配置
+langsmith:
+  api_url: "https://api.smith.langchain.com"
+  api_key: "${LANGSMITH_API_KEY}"
+  project: "mvp-langgraph-rag"
+  tracing: true
+  tracing_v2: true
+  
+# 监控配置
+monitoring:
+  enabled: true
+  log_level: "INFO"
+  
+  # 指标收集
+  metrics:
+    response_time: true
+    similarity_scores: true
+    token_usage: true
+    error_rates: true
+    
+  # 数据上报
+  reporting:
+    langsmith:
+      enabled: true
+      batch_size: 100
+      flush_interval: 30  # 秒
+      
+    wandb:  # 可选
+      enabled: false
+      project: "mvp-langgraph"
+      entity: "your-username"
+      
+  # 性能阈值
+  thresholds:
+    max_response_time: 30.0  # 秒
+    min_similarity_score: 0.7
+    max_error_rate: 0.05
