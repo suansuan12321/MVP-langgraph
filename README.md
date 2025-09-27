@@ -117,6 +117,11 @@ MONITORING_CONFIG_PATH=config/monitoring.yaml
 
 ```
 MVP-langgrah
+├── Dockerfile                 # Docker构建文件
+├── docker-compose.yml         # Docker编排文件
+├── init.py                   # 初始化脚本
+├── DEPLOY.md                 # 部署文档
+├── .env.example # 环境变量示例
 ├── monitoring/ # 监控模块目录
 │ ├── init.py # 监控模块初始化
 │ ├── langsmith_client.py # LangSmith 客户端
@@ -124,12 +129,14 @@ MVP-langgrah
 │ └── performance_monitor.py # 性能监控器
 ├── config/ # 配置文件目录
 │ └── monitoring.yaml # 监控配置文件
+├── scripts/                  # 部署脚本目录
+│   ├── setup.sh            # 环境设置脚本
+│   └── health_check.py     # 服务健康检查脚本
 ├── embedding.py # 文档向量化处理
 ├── graphRAG_query.py # GraphRAG主程序
 ├── flowchart.svg # 执行流程图
 ├── pyproject.toml # uv 包管理
 ├── requirements.txt # 依赖包列表
-├── .env.example # 环境变量示例
 └── README.md # 项目说明文档
 ```
 
