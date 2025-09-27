@@ -6,6 +6,7 @@
 
 ## 核心功能
 
+
 ### 1. 文档向量化处理 (`embedding.py`)
 - 支持多种文档格式：PDF、DOCX、Markdown、TXT
 - 异步并发处理，提高处理效率
@@ -18,6 +19,12 @@
 - 混合检索策略：结合向量检索和知识图谱检索
 - 支持Neo4j和NetworkX两种图谱存储方式
 - 社区发现算法：使用Leiden算法进行层次聚类
+
+### 3. 智能对话交互 (`graphRAG_create.py`)
+- 历史回顾功能：查看、搜索和复用历史对话记录
+- 智能补充提问：基于当前回答自动生成相关问题
+- 上下文关联：支持多轮对话的上下文理解
+- 对话历史管理：自动保存和加载对话记录
 
 ## 技术架构
 
@@ -37,12 +44,37 @@
 
 ### 环境要求
 - Python 3.8+
+- uv (推荐) 或 pip
 - Milvus向量数据库
 - Neo4j数据库（可选）
 
-### 安装依赖
+### 安装uv
 ```bash
-pip install -r requirements.txt
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Linux/macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 或者使用pip安装
+pip install uv
+```
+
+### 项目设置
+```bash
+# 克隆项目
+git clone https://github.com/suansuan12321/MVP-langgraph.git
+cd MVP-langgraph
+
+# 创建虚拟环境并安装依赖
+uv venv
+uv pip install -r requirements.txt
+
+# 激活虚拟环境
+# Windows
+.venv\Scripts\activate
+# Linux/macOS
+source .venv/bin/activate
 ```
 
 ### 环境变量配置
@@ -68,6 +100,10 @@ NEO4J_PASSWORD=your_password
 
 ### 1. 文档向量化处理
 ```bash
+# 使用uv运行
+uv run python embedding.py
+
+# 或激活环境后运行
 python embedding.py
 ```
 按提示输入：
@@ -76,7 +112,11 @@ python embedding.py
 
 ### 2. 启动GraphRAG聊天机器人
 ```bash
-python graphRAG_query.py
+# 使用uv运行增强版（推荐）
+uv run python graphRAG_create.py
+
+# 或运行基础版
+uv run python graphRAG_query.py
 ```
 按提示输入：
 - 数据库集合名称
@@ -118,28 +158,38 @@ python graphRAG_query.py
 - **历史回顾**: 查看和搜索历史对话记录
 - **智能提问**: 自动生成相关补充问题
 
-# 部署指南
+## 部署指南
 
-## 快速开始
+### 快速开始
 
-### 1. 克隆仓库
+#### 1. 克隆仓库
 ```bash
 git clone https://github.com/suansuan12321/MVP-langgraph.git
-cd knowledge-graph-rag-bot
+cd MVP-langgraph
 ```
 
-### 2. 安装依赖
+#### 2. 安装uv和依赖
 ```bash
-pip install -r requirements.txt
+# 安装uv (如果尚未安装)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 创建虚拟环境并安装依赖
+uv venv
+uv pip install -r requirements.txt
+
+# 激活虚拟环境
+source .venv/bin/activate  # Linux/macOS
+# 或 .venv\Scripts\activate  # Windows
 ```
 
-### 3. 配置环境变量
+#### 3. 配置环境变量
 ```bash
+# 复制环境变量模板
 cp .env.example .env
 # 编辑 .env 文件，填入API密钥
 ```
 
-### 4. 启动Milvus服务
+#### 4. 启动Milvus服务
 ```bash
 # 使用Docker启动Milvus
 docker run -d --name milvus-standalone \
@@ -148,7 +198,7 @@ docker run -d --name milvus-standalone \
   milvusdb/milvus:latest
 ```
 
-### 5. 启动Neo4j服务（可选）
+#### 5. 启动Neo4j服务（可选）
 ```bash
 # 使用Docker启动Neo4j
 docker run -d --name neo4j \
@@ -157,12 +207,10 @@ docker run -d --name neo4j \
   neo4j:latest
 ```
 
-### 6. 运行程序
+#### 6. 运行程序
 ```bash
 # 第一步：处理文档
-python embedding.py
+uv run python embedding.py
 
 # 第二步：启动聊天机器人
-python graphRAG_query.py
-```
-```
+uv run python graphRAG_query.py
