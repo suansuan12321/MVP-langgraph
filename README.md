@@ -13,14 +13,14 @@
 - 支持OpenAI和HuggingFace两种嵌入模型
 - 自动连接到Milvus向量数据库
 
-### 2. 知识图谱构建与检索 (`graphRAG_query.py`)
+### 2. 知识图谱构建与检索 (`graphrag_query.py`)
 - 智能实体提取：支持英文专有名词、中文实体、技术术语等
 - 关系提取：基于上下文和句法结构分析实体间关系
 - 混合检索策略：结合向量检索和知识图谱检索
 - 支持Neo4j和NetworkX两种图谱存储方式
 - 社区发现算法：使用Leiden算法进行层次聚类
 
-### 3. 智能对话交互 (`graphRAG_create.py`)
+### 3. 智能对话交互 (`graphrag_create.py`)
 - 历史回顾功能：查看、搜索和复用历史对话记录
 - 智能补充提问：基于当前回答自动生成相关问题
 - 上下文关联：支持多轮对话的上下文理解
@@ -133,7 +133,7 @@ MVP-langgrah
 │   ├── setup.sh            # 环境设置脚本
 │   └── health_check.py     # 服务健康检查脚本
 ├── embedding.py # 文档向量化处理
-├── graphRAG_query.py # GraphRAG主程序
+├── graphrag_query.py # GraphRAG主程序
 ├── flowchart.svg # 执行流程图
 ├── pyproject.toml # uv 包管理
 ├── requirements.txt # 依赖包列表
@@ -157,7 +157,7 @@ python embedding.py
 ### 2. 启动GraphRAG聊天机器人
 ```bash
 # 使用uv运行
-uv run python graphRAG_query.py
+uv run python graphrag_query.py
 ```
 
 按提示输入：
@@ -290,4 +290,4 @@ docker run -d --name neo4j \
 uv run python embedding.py
 
 # 第二步：启动聊天机器人
-uv run python graphRAG_query.py
+uv run python graphrag_query.py

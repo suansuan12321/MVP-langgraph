@@ -68,7 +68,7 @@ python embedding.py
 
 ```bash
 # 在GraphRAG容器内
-python graphRAG_query.py
+python graphrag_query.py
 
 # 按照提示输入:
 # - 集合名称 (与上一步相同)

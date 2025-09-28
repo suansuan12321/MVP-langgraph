@@ -36,4 +36,4 @@ EXPOSE 8501
 ENTRYPOINT ["python", "init.py"]
 
 # 默认命令
-CMD ["python", "graphRAG_query.py"]
+CMD ["python", "graphrag_query.py"]

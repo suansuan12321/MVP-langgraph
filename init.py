@@ -195,7 +195,7 @@ async def main():
         print("GraphRAG系统初始化完成!")
         print("您现在可以运行以下命令开始使用:")
         print("1. 处理文档: python embedding.py")
-        print("2. 启动问答系统: python graphRAG_query.py")
+        print("2. 启动问答系统: python graphrag_query.py")
         print("="*50 + "\n")
     else:
         logging.warning("部分服务初始化失败，系统可能无法正常工作")
