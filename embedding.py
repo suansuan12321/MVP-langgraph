@@ -92,8 +92,7 @@ async def main():
         drop_old = False
 
     start_time = time.time()
-    await asyncio.to_thread(
-        Milvus.from_documents,
+    Milvus.from_documents(
         split_docs,
         embeddings,
         connection_args=connection_args,
